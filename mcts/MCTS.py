@@ -218,3 +218,53 @@ class MCTS():
         for (y, x), p in zip(moves, priors):
             node.children[(y, x)] = Edge(None, float(p))
         return float(value)
+
+    def get_train_data(self):
+        """Collect training samples from all visited root nodes.
+
+        Returns
+        -------
+        boards : list of torch.FloatTensor
+            Each element is a 4-channel board tensor from the perspective of
+            the player to move at that root.
+        policies : list of torch.FloatTensor
+            Visit-count distribution over moves for each root.
+        values : list of float
+            Mean value of the root node from the search.
+        weights : list of float
+            A simple weight proportional to the square root of total visits.
+        """
+
+        boards, policies, values, weights = [], [], [], []
+
+        for root in self.visit_nodes:
+            size = root.board.size
+            probs = np.zeros((size, size), dtype=np.float32)
+
+            total_visits = 0
+            for move, edge in root.children.items():
+                child = edge.child
+                if child is not None and child.visit_count > 0:
+                    y, x = move
+                    probs[y, x] = child.visit_count
+                    total_visits += child.visit_count
+
+            if total_visits == 0:
+                # 无有效访问，跳过此根节点
+                continue
+
+            probs /= float(total_visits)
+
+            board_tensor = torch.from_numpy(
+                root.board.get_planes_4ch(root.player)
+            ).float()
+
+            boards.append(board_tensor)
+            policies.append(torch.from_numpy(probs).float())
+            values.append(float(root.q_value()))
+            weights.append(math.sqrt(total_visits))
+
+        # 清空以便下一局使用
+        self.visit_nodes.clear()
+
+        return boards, policies, values, weights
