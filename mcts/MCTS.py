@@ -1,13 +1,15 @@
 import math
 import random
-
 import numpy as np
 import torch
+import logging  # 导入日志模块
 
 from core.board import GomokuBoard
 from mcts.MCTS_Node import MCTSNode, Edge
 from net.GomokuNet import PolicyValueNet
 
+# 配置日志
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MCTS():
     def __init__(self, model: PolicyValueNet, use_rand=0.1, c_puct=1.4):
@@ -20,19 +22,8 @@ class MCTS():
         self.visit_nodes = []
 
     def run(self, root_board: GomokuBoard, player: int, number_samples=100, is_train=False):
-        """Run MCTS search from the given board state.
-
-        Parameters
-        ----------
-        root_board : GomokuBoard
-            Current board state to search from.
-        player : int
-            Player to move at the root (+1 for black, -1 for white).
-        number_samples : int
-            Number of simulations to run.
-        is_train : bool
-            Whether in training mode (affects policy temperature).
-        """
+        """Run MCTS search from the given board state."""
+        logging.info(f"Running MCTS for player {player} on the root board.")
         root_node = MCTSNode(root_board, player=player)
         self.visit_nodes.append(root_node)
         for _ in range(number_samples):
@@ -49,25 +40,16 @@ class MCTS():
                 n.visit_count += 1
                 n.total_value += value
                 value = -value
+        logging.info(f"MCTS run completed for player {player}.")
         return self.get_result(root_node, is_train)
 
     def get_result(self, root_node: MCTSNode, is_train):
-        """
-        返回:
-          - value: 根节点价值（优先用搜索均值，否则回退网络）
-          - probs: 棋盘大小的二维分布（仅在合法动作上归一）
-        约定:
-          - moves 为 (y, x)
-          - node.children[move] = Edge(child, prior)
-          - child.visit_count 为访问次数; child.q_value() 返回从根玩家视角的均值Q
-          - self.model.calc_one_board(board_or_planes) -> (policy_logits, value)
-        """
+        """Get the result of the MCTS search."""
         size = root_node.board.size
         board_mat = root_node.board.board
         legal_mask = (board_mat == 0)
         probs = np.zeros((size, size), dtype=np.float32)
 
-        # —— 收集根节点的已展开子节点统计 ——
         items = []  # (move, child, prior)
         for move, edge in root_node.children.items():
             items.append((move, edge.child, edge.prior))
@@ -79,28 +61,23 @@ class MCTS():
 
         total_visits = float(visit_counts.sum()) if visit_counts.size > 0 else 0.0
 
-        # —— 根节点价值：优先用搜索Q，否则回退网络值 ——
         if getattr(root_node, "visit_count", 0) > 0:
             root_value = float(root_node.q_value())
         else:
-            # 与 expand_node 一致，传 4 通道平面
             policy_logits_net, value_net = self.model.calc_one_board(
                 root_node.board.get_planes_4ch(root_node.player)
             )
             root_value = float(value_net)
 
-        # 小工具：把一维分布写回二维 probs
         def assign_by_moves(moves_list, weights):
             for (mv, _child, _prior), w in zip(moves_list, weights):
                 y, x = mv
                 probs[y, x] = float(w)
 
-        # —— 推理分支：用访问计数导出 π（可选温度，默认接近贪心） ——
         if not is_train:
-            temperature_eval = 1e-3  # 接近 argmax：更稳也更常用
+            temperature_eval = 1e-3
             if total_visits > 0:
                 if temperature_eval <= 0:
-                    # 纯 argmax（这里用接近0的温度等价）
                     idx = int(np.argmax(visit_counts))
                     y, x = items[idx][0]
                     probs[y, x] = 1.0
@@ -110,7 +87,6 @@ class MCTS():
                     if Z > 0:
                         assign_by_moves(items, x / Z)
             else:
-                # 没有效访问计数，退回网络先验（只在合法位上）
                 policy_logits_net, _ = self.model.calc_one_board(
                     root_node.board.get_planes_4ch(root_node.player)
                 )
@@ -124,11 +100,9 @@ class MCTS():
                         probs = legal_mask.astype(np.float32) / float(cnt)
             return root_value, probs
 
-        # —— 训练分支：以访问计数为主，未访问动作用先验做轻微回填（ε） ——
-        temperature_train = 1.0  # 经典 AlphaZero 训练期常用 τ=1
-        prior_backfill_eps = 0.10  # ε：给未访问合法动作一点先验质量，避免目标过尖锐
+        temperature_train = 1.0
+        prior_backfill_eps = 0.10
 
-        # 先拿先验（合法位上归一）
         policy_logits_net, _ = self.model.calc_one_board(
             root_node.board.get_planes_4ch(root_node.player)
         )
@@ -142,7 +116,6 @@ class MCTS():
                 prior = legal_mask.astype(np.float32) / float(cnt)
 
         if total_visits > 0:
-            # 访问计数分布（带温度）
             if temperature_train <= 0:
                 idx = int(np.argmax(visit_counts))
                 y, x = items[idx][0]
@@ -153,9 +126,7 @@ class MCTS():
                 if Z > 0:
                     assign_by_moves(items, x / Z)
 
-            # 将 ε 质量分配给“未访问的合法动作”的先验
             if prior_backfill_eps > 0.0:
-                # 缩放已访问部分到 (1-ε)
                 probs *= (1.0 - prior_backfill_eps)
 
                 visited_mask = np.zeros_like(legal_mask, dtype=bool)
@@ -170,15 +141,12 @@ class MCTS():
                 if su > 0:
                     probs += prior_backfill_eps * (prior_unvisited / su)
                 else:
-                    # 若不存在未访问合法位，保持现状并规范化
                     s2 = float(probs.sum())
                     if s2 > 0:
                         probs /= s2
         else:
-            # 完全没有访问计数：训练目标退回纯先验
             probs = prior.copy()
 
-        # 只在合法位上归一
         probs = np.where(legal_mask, probs, 0.0).astype(np.float32)
         Z = float(probs.sum())
         if Z > 0:
@@ -204,6 +172,7 @@ class MCTS():
             if score > best_score:
                 best_score = score
                 best_move = move
+
         edge = node.children[best_move]
         child, prior = edge.child, edge.prior
         if child is None:
@@ -212,9 +181,11 @@ class MCTS():
             new_board.step((y, x), node.player)
             child = MCTSNode(new_board, parent=node, move=best_move, player=-node.player)
             node.children[best_move] = Edge(child, prior)
+        logging.debug(f"Selected child: move={best_move}, score={best_score}")
         return child
 
     def expand_node(self, node: MCTSNode):
+        logging.info(f"Expanding node for board {node.board}")
         policy_logits, value = self.model.calc_one_board(
             torch.from_numpy(node.board.get_planes_4ch(node.player))
         )
@@ -230,33 +201,13 @@ class MCTS():
         priors = [p / ps if ps > 0 else 1.0 / len(priors) for p in priors]
         for (y, x), p in zip(moves, priors):
             node.children[(y, x)] = Edge(None, float(p))
+
+        logging.debug(f"Node expanded with {len(moves)} legal moves.")
         return float(value)
 
     def get_train_data(self, game_result: int | None = None):
-        """Collect training samples from all visited root nodes.
-
-        Parameters
-        ----------
-        game_result : int or None
-            Final outcome of the self-play game from black's perspective
-            (1 for black win, -1 for white win, 0 for draw/undecided). If
-            provided, each sample's value will be this result from the root
-            player's perspective. If ``None`` the root node's mean value from
-            search is used instead.
-
-        Returns
-        -------
-        boards : list of torch.FloatTensor
-            Each element is a 4-channel board tensor from the perspective of
-            the player to move at that root.
-        policies : list of torch.FloatTensor
-            Visit-count distribution over moves for each root.
-        values : list of float
-            Target value for each root node.
-        weights : list of float
-            A simple weight proportional to the square root of total visits.
-        """
-
+        """Collect training samples from all visited root nodes."""
+        logging.info(f"Collecting training data with game result {game_result}.")
         boards, policies, values, weights = [], [], [], []
 
         for root in self.visit_nodes:
@@ -272,7 +223,7 @@ class MCTS():
                     total_visits += child.visit_count
 
             if total_visits == 0:
-                # 无有效访问，跳过此根节点
+                logging.warning(f"No valid visits for root node {root}. Skipping.")
                 continue
 
             probs /= float(total_visits)
@@ -289,7 +240,7 @@ class MCTS():
                 values.append(float(game_result if root.player == 1 else -game_result))
             weights.append(math.sqrt(total_visits))
 
-        # 清空以便下一局使用
         self.visit_nodes.clear()
 
+        logging.info(f"Collected {len(boards)} training samples.")
         return boards, policies, values, weights
