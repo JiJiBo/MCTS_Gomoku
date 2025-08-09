@@ -24,7 +24,6 @@ class MCTS():
 
     def run(self, root_board: GomokuBoard, player: int, number_samples=100, is_train=False):
         """Run MCTS search from the given board state."""
-        logging.info(f"Running MCTS for player {player} on the root board.")
         root_node = MCTSNode(root_board, player=player)
         self.visit_nodes.append(root_node)
         for _ in range(number_samples):
