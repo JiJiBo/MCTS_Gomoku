@@ -134,7 +134,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_interval', type=int, default=500)
     parser.add_argument('--queue-size', type=int, default=4096)          # 较大的自对弈数据缓存
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--log-dir', type=str, default='runs/realtime')
+    parser.add_argument('--log-dir', type=str, default='/root/tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
     parser.add_argument('--no-cuda', action='store_true', help='disable CUDA')
     args = parser.parse_args()
