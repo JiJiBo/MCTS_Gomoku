@@ -11,6 +11,7 @@ from net.GomokuNet import PolicyValueNet
 # 配置日志
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
 class MCTS():
     def __init__(self, model: PolicyValueNet, use_rand=0.1, c_puct=1.4):
         self.model = model
@@ -40,7 +41,6 @@ class MCTS():
                 n.visit_count += 1
                 n.total_value += value
                 value = -value
-        logging.info(f"MCTS run completed for player {player}.")
         return self.get_result(root_node, is_train)
 
     def get_result(self, root_node: MCTSNode, is_train):
@@ -181,11 +181,9 @@ class MCTS():
             new_board.step((y, x), node.player)
             child = MCTSNode(new_board, parent=node, move=best_move, player=-node.player)
             node.children[best_move] = Edge(child, prior)
-        logging.debug(f"Selected child: move={best_move}, score={best_score}")
         return child
 
     def expand_node(self, node: MCTSNode):
-        logging.info(f"Expanding node for board {node.board}")
         policy_logits, value = self.model.calc_one_board(
             torch.from_numpy(node.board.get_planes_4ch(node.player))
         )
@@ -202,7 +200,6 @@ class MCTS():
         for (y, x), p in zip(moves, priors):
             node.children[(y, x)] = Edge(None, float(p))
 
-        logging.debug(f"Node expanded with {len(moves)} legal moves.")
         return float(value)
 
     def get_train_data(self, game_result: int | None = None):
