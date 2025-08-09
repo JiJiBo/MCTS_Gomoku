@@ -1,4 +1,6 @@
 import argparse
+import os
+import random
 import threading
 import queue
 import numpy as np
@@ -40,6 +42,16 @@ def selfplay_worker(worker_id: int, model: PolicyValueNet, data_queue: queue.Que
 
 
 def train_realtime(args):
+    seed = 42
+    print("Random Seed: ", seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)  # 如果用 GPU
+    torch.cuda.manual_seed_all(seed)  # 多 GPU 训练
+    np.random.seed(seed)
+    random.seed(seed)
+    os.makedirs('./check_dir', exist_ok=True)
+    run_id = len(os.listdir('./check_dir'))
+    checkpoints_path = f"./check_dir/run{run_id}"
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     model = PolicyValueNet(board_size=args.board_size)
     model.to(device)
@@ -92,7 +104,9 @@ def train_realtime(args):
             writer.add_scalar('loss/policy', policy_loss.item(), global_step)
             writer.add_scalar('loss/value', value_loss.item(), global_step)
             writer.add_scalar('loss/total', loss.item(), global_step)
-
+            if step % args.save_interval == 0:
+                mem_path = os.path.join(checkpoints_path, f'mem{step}.pth')
+                torch.save(model.state_dict(), mem_path)
             # 打印训练信息
             print(
                 f"[Train Step {step}] Policy Loss: {policy_loss.item():.4f}, Value Loss: {value_loss.item():.4f}, Total Loss: {loss.item():.4f}")
@@ -113,6 +127,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-simulations', type=int, default=100)
     parser.add_argument('--train-steps', type=int, default=100 * 2 * 3)
     parser.add_argument('--batch-size', type=int, default=32)
+    parser.add_argument('--save_interval', type=int, default=100)
     parser.add_argument('--queue-size', type=int, default=1024)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--log-dir', type=str, default='runs/realtime')

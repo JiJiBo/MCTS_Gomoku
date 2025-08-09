@@ -1,6 +1,8 @@
 import argparse
 import os
+import random
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -11,6 +13,16 @@ from net.GomokuNet import PolicyValueNet
 
 
 def train(args):
+    seed = 42
+    print("Random Seed: ", seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)  # 如果用 GPU
+    torch.cuda.manual_seed_all(seed)  # 多 GPU 训练
+    np.random.seed(seed)
+    random.seed(seed)
+    os.makedirs('./check_dir', exist_ok=True)
+    run_id = len(os.listdir('./check_dir'))
+    checkpoints_path = f"./check_dir/run{run_id}"
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
 
     dataset = GomokuDataset(args.data_dir)
@@ -45,7 +57,9 @@ def train(args):
             global_step += 1
 
         print(f'Epoch {epoch}/{args.epochs} - loss: {loss.item():.4f}')
-
+        if epoch % args.save_interval == 0:
+            mem_path = os.path.join(checkpoints_path, f'mem{epoch}.pth')
+            torch.save(model.state_dict(), mem_path)
     os.makedirs(os.path.dirname(args.save_path) or '.', exist_ok=True)
     torch.save(model.state_dict(), args.save_path)
     writer.close()
@@ -58,6 +72,7 @@ if __name__ == '__main__':
     parser.add_argument('--log-dir', type=str, default='runs', help='directory for TensorBoard logs')
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--epochs', type=int, default=10)
+    parser.add_argument('--save_interval', type=int, default=10)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--board-size', type=int, default=15)
     parser.add_argument('--no-cuda', action='store_true', help='disable CUDA')
