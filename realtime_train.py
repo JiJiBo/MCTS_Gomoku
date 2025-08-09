@@ -127,17 +127,18 @@ def train_realtime(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Real-time training with self-play MCTS data')
     parser.add_argument('--board-size', type=int, default=15)
-    parser.add_argument('--num-workers', type=int, default=2)
-    parser.add_argument('--num-simulations', type=int, default=100)
-    parser.add_argument('--train-steps', type=int, default=100 * 2 * 3)
-    parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--save_interval', type=int, default=100)
-    parser.add_argument('--queue-size', type=int, default=1024)
+    parser.add_argument('--num-workers', type=int, default=20)          # 充分利用 20 核 CPU
+    parser.add_argument('--num-simulations', type=int, default=400)      # MCTS 深度更大
+    parser.add_argument('--train-steps', type=int, default=6000)         # 100 * 20 * 3
+    parser.add_argument('--batch-size', type=int, default=256)           # 3090 显存足够
+    parser.add_argument('--save_interval', type=int, default=500)
+    parser.add_argument('--queue-size', type=int, default=4096)          # 较大的自对弈数据缓存
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--log-dir', type=str, default='runs/realtime')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
     parser.add_argument('--no-cuda', action='store_true', help='disable CUDA')
     args = parser.parse_args()
+
 
     # 开始训练前输出开始时间
     print(f"[Training Start] Training started at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
