@@ -45,13 +45,17 @@ def train_realtime(args):
     seed = 42
     print("Random Seed: ", seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)  # 如果用 GPU
-    torch.cuda.manual_seed_all(seed)  # 多 GPU 训练
     np.random.seed(seed)
     random.seed(seed)
+    if torch.cuda.is_available():  # ✅ 修复：仅在可用时设 CUDA 种子
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    # ---- checkpoints path ----
     os.makedirs('./check_dir', exist_ok=True)
     run_id = len(os.listdir('./check_dir'))
     checkpoints_path = f"./check_dir/run{run_id}"
+    os.makedirs(checkpoints_path, exist_ok=True)
+
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     model = PolicyValueNet(board_size=args.board_size)
     model.to(device)
