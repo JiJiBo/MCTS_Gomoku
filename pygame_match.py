@@ -3,6 +3,7 @@ import time
 import random
 import numpy as np
 import pygame
+import torch
 from typing import Optional
 
 from core.board import GomokuBoard
@@ -34,6 +35,26 @@ class MCTSAgent(Agent):
         idx = int(np.argmax(probs))
         y, x = divmod(idx, board.size)
         return (y, x)
+
+
+class ModelAgent(MCTSAgent):
+    """Agent that loads a PolicyValueNet model from a checkpoint."""
+
+    def __init__(
+        self,
+        model_path: str,
+        board_size: int = 15,
+        device: Optional[str] = None,
+        simulations: int = 100,
+    ):
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = PolicyValueNet(board_size=board_size)
+        state = torch.load(model_path, map_location=device)
+        model.load_state_dict(state)
+        model.to(device)
+        model.eval()
+        super().__init__(model, simulations)
 
 
 class PygameMatch:
