@@ -13,26 +13,29 @@ from net.GomokuNet import PolicyValueNet
 
 
 def generate_self_play_data(model, games, board_size, simulations):
+    """Generate training samples via self-play using MCTS."""
     mcts = MCTS(model)
     boards, policies, values = [], [], []
-    for _ in range(games):
-        board = GomokuBoard(board_size)
-        player = 1
-        while not board.is_terminal():
-            _, probs = mcts.run(board, number_samples=simulations, is_train=True)
-            moves = board.legal_moves()
-            move_probs = np.array([probs[y, x] for y, x in moves], dtype=np.float32)
-            if move_probs.sum() <= 0:
-                move_probs = np.ones(len(moves), dtype=np.float32) / len(moves)
-            else:
-                move_probs /= move_probs.sum()
-            move = moves[np.random.choice(len(moves), p=move_probs)]
-            board.step(move, player)
-            player = -player
-        b, p, v, _ = mcts.get_train_data()
-        boards.extend(b)
-        policies.extend(p)
-        values.extend(v)
+    model.eval()
+    with torch.no_grad():
+        for _ in range(games):
+            board = GomokuBoard(board_size)
+            player = 1
+            while not board.is_terminal():
+                _, probs = mcts.run(board, number_samples=simulations, is_train=True)
+                moves = board.legal_moves()
+                move_probs = np.array([probs[y, x] for y, x in moves], dtype=np.float32)
+                if move_probs.sum() <= 0:
+                    move_probs = np.ones(len(moves), dtype=np.float32) / len(moves)
+                else:
+                    move_probs /= move_probs.sum()
+                move = moves[np.random.choice(len(moves), p=move_probs)]
+                board.step(move, player)
+                player = -player
+            b, p, v, _ = mcts.get_train_data()
+            boards.extend(b)
+            policies.extend(p)
+            values.extend(v)
     boards = torch.stack(boards)
     policies = torch.stack([pi.view(-1) for pi in policies])
     values = torch.tensor(values, dtype=torch.float32)
@@ -46,13 +49,12 @@ def train(args):
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    dataset = generate_self_play_data(model, args.self_play_games, args.board_size, args.simulations)
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-
     writer = SummaryWriter(args.log_dir)
     global_step = 0
 
     for epoch in range(1, args.epochs + 1):
+        dataset = generate_self_play_data(model, args.self_play_games, args.board_size, args.simulations)
+        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
         model.train()
         for boards, target_pi, target_v in loader:
             boards = boards.to(device)
