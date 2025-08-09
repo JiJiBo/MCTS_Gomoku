@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -81,9 +82,14 @@ class PolicyValueNet(nn.Module):
         return policy, value
 
     def calc_one_board(self, board_4ch):
-        board_4ch = board_4ch.view(board_4ch.size(0), self.H, self.W)
-        board_4ch = board_4ch.to(self.device)
-        policy_logits, value = self.forward(board_4ch)
-        policy_logits = policy_logits.squeeze().view(self.H, self.W)
-        value = float(value.squeeze())
+        if isinstance(board_4ch, np.ndarray):
+            board_4ch = torch.from_numpy(board_4ch)
+        device = next(self.parameters()).device
+        board_4ch = board_4ch.unsqueeze(0).to(device, dtype=torch.float32)
+        with torch.no_grad():
+            policy_logits, value = self.forward(board_4ch)
+        policy_logits = (
+            policy_logits.squeeze(0).view(self.H, self.W).detach().cpu().numpy()
+        )
+        value = float(value.squeeze().item())
         return policy_logits, value

@@ -8,7 +8,7 @@ Move = Tuple[int, int]
 
 @dataclass
 class Edge:
-    child: Optional['MCTSNode', None]
+    child: Optional['MCTSNode']
     prior: float
 
 
