@@ -42,55 +42,143 @@ class MCTS():
         return self.get_result(root_node, is_train)
 
     def get_result(self, root_node: MCTSNode, is_train):
-        probs = np.zeros((root_node.board.size, root_node.board.size))
-        total_visits = sum(
-            edge.child.visit_count if edge.child is not None else 0 for edge in root_node.children.values())
-        if not is_train:
-            for move, edg, in root_node.children.items():
-                if edg.child is not None:
-                    i, j = move
-                    probs[i][j] = edg.child.visit_count / total_visits if total_visits > 0 else 0
-            return root_node.q_value(), probs
+        """
+        返回:
+          - value: 根节点价值（优先用搜索均值，否则回退网络）
+          - probs: 棋盘大小的二维分布（仅在合法动作上归一）
+        约定:
+          - moves 为 (y, x)
+          - node.children[move] = Edge(child, prior)
+          - child.visit_count 为访问次数; child.q_value() 返回从根玩家视角的均值Q
+          - self.model.calc_one_board(board_or_planes) -> (policy_logits, value)
+        """
+        size = root_node.board.size
+        board_mat = root_node.board.board
+        legal_mask = (board_mat == 0)
+        probs = np.zeros((size, size), dtype=np.float32)
+
+        # —— 收集根节点的已展开子节点统计 ——
+        items = []  # (move, child, prior)
+        for move, edge in root_node.children.items():
+            items.append((move, edge.child, edge.prior))
+
+        visit_counts = np.array(
+            [(c.visit_count if c is not None else 0) for (_, c, _) in items],
+            dtype=np.float32
+        ) if items else np.empty((0,), dtype=np.float32)
+
+        total_visits = float(visit_counts.sum()) if visit_counts.size > 0 else 0.0
+
+        # —— 根节点价值：优先用搜索Q，否则回退网络值 ——
+        if getattr(root_node, "visit_count", 0) > 0:
+            root_value = float(root_node.q_value())
         else:
-            policy_logits, value = self.model.calc_one_board(root_node.board)
-            good = len(root_node.board.legal_moves())
-            for i in range(root_node.board.size):
-                for j in range(root_node.board.size):
-                    if root_node.board.board[j][i] != 0 or policy_logits[j][i] == 0:
-                        probs[j][i] = 0
-                    else:
-                        probs[j][i] = policy_logits[j][i] / good
-            sum_used = 0
-            moves = []
-            for move, edg in root_node.children.items():
-                if edg.child is not None and edg.child.visit_count != 0:
-                    sum_used += probs[move]
-                    probs[move] = 0
-                    moves.append((move[0], move[1], edg.child))
-            moves.sort(key=lambda x: x[0], reverse=True)
-            value_sum = 0
-            for i in range(0, len(moves)):
-                cnt = moves[i][2].visit_count
-                if i + 1 < len(moves):
-                    cnt += moves[i + 1][2].visit_count
-                if cnt == 0:
-                    continue
-                cur = 1e-9
-                best_pos = i
-                for j in range(0, i + 1):
-                    vals = -moves[j][2].q_value()
-                    if vals > cur:
-                        cur = vals
-                        best_pos = j
-                probs[moves[best_pos][0], moves[best_pos][1]] += sum_used * cnt * (i + 1) / total_visits
-                value_sum += cur * cnt(i + 1) / total_visits
-            for i in range(root_node.board.size):
-                for j in range(root_node.board.size):
-                    if probs[j][i] < 0:
-                        print(good)
-                        print(probs[j][i])
-                        assert False
-            return value_sum, probs
+            # 与 expand_node 一致，传 4 通道平面
+            policy_logits_net, value_net = self.model.calc_one_board(
+                root_node.board.get_planes_4ch(root_node.player)
+            )
+            root_value = float(value_net)
+
+        # 小工具：把一维分布写回二维 probs
+        def assign_by_moves(moves_list, weights):
+            for (mv, _child, _prior), w in zip(moves_list, weights):
+                y, x = mv
+                probs[y, x] = float(w)
+
+        # —— 推理分支：用访问计数导出 π（可选温度，默认接近贪心） ——
+        if not is_train:
+            temperature_eval = 1e-3  # 接近 argmax：更稳也更常用
+            if total_visits > 0:
+                if temperature_eval <= 0:
+                    # 纯 argmax（这里用接近0的温度等价）
+                    idx = int(np.argmax(visit_counts))
+                    y, x = items[idx][0]
+                    probs[y, x] = 1.0
+                else:
+                    x = visit_counts ** (1.0 / max(1e-6, temperature_eval))
+                    Z = float(x.sum())
+                    if Z > 0:
+                        assign_by_moves(items, x / Z)
+            else:
+                # 没有效访问计数，退回网络先验（只在合法位上）
+                policy_logits_net, _ = self.model.calc_one_board(
+                    root_node.board.get_planes_4ch(root_node.player)
+                )
+                prior = np.where(legal_mask, policy_logits_net, 0.0).astype(np.float32)
+                s = float(prior.sum())
+                if s > 0:
+                    probs = prior / s
+                else:
+                    cnt = int(legal_mask.sum())
+                    if cnt > 0:
+                        probs = legal_mask.astype(np.float32) / float(cnt)
+            return root_value, probs
+
+        # —— 训练分支：以访问计数为主，未访问动作用先验做轻微回填（ε） ——
+        temperature_train = 1.0  # 经典 AlphaZero 训练期常用 τ=1
+        prior_backfill_eps = 0.10  # ε：给未访问合法动作一点先验质量，避免目标过尖锐
+
+        # 先拿先验（合法位上归一）
+        policy_logits_net, _ = self.model.calc_one_board(
+            root_node.board.get_planes_4ch(root_node.player)
+        )
+        prior = np.where(legal_mask, policy_logits_net, 0.0).astype(np.float32)
+        ps = float(prior.sum())
+        if ps > 0:
+            prior /= ps
+        else:
+            cnt = int(legal_mask.sum())
+            if cnt > 0:
+                prior = legal_mask.astype(np.float32) / float(cnt)
+
+        if total_visits > 0:
+            # 访问计数分布（带温度）
+            if temperature_train <= 0:
+                idx = int(np.argmax(visit_counts))
+                y, x = items[idx][0]
+                probs[y, x] = 1.0
+            else:
+                x = visit_counts ** (1.0 / max(1e-6, temperature_train))
+                Z = float(x.sum())
+                if Z > 0:
+                    assign_by_moves(items, x / Z)
+
+            # 将 ε 质量分配给“未访问的合法动作”的先验
+            if prior_backfill_eps > 0.0:
+                # 缩放已访问部分到 (1-ε)
+                probs *= (1.0 - prior_backfill_eps)
+
+                visited_mask = np.zeros_like(legal_mask, dtype=bool)
+                for (mv, child, _), _v in zip(items, visit_counts):
+                    if child is not None and child.visit_count > 0:
+                        vy, vx = mv
+                        visited_mask[vy, vx] = True
+
+                unvisited_mask = legal_mask & (~visited_mask)
+                prior_unvisited = np.where(unvisited_mask, prior, 0.0)
+                su = float(prior_unvisited.sum())
+                if su > 0:
+                    probs += prior_backfill_eps * (prior_unvisited / su)
+                else:
+                    # 若不存在未访问合法位，保持现状并规范化
+                    s2 = float(probs.sum())
+                    if s2 > 0:
+                        probs /= s2
+        else:
+            # 完全没有访问计数：训练目标退回纯先验
+            probs = prior.copy()
+
+        # 只在合法位上归一
+        probs = np.where(legal_mask, probs, 0.0).astype(np.float32)
+        Z = float(probs.sum())
+        if Z > 0:
+            probs /= Z
+        else:
+            cnt = int(legal_mask.sum())
+            if cnt > 0:
+                probs = legal_mask.astype(np.float32) / float(cnt)
+
+        return root_value, probs
 
     def select_child(self, node: MCTSNode):
         total_visits = sum(
