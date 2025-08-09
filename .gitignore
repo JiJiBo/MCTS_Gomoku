@@ -1,3 +1,4 @@
 /runs/
-/realtime_model.pth
+/*.pth
 /check_dir/
+/mem0.pth

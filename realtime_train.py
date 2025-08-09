@@ -128,7 +128,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Real-time training with self-play MCTS data')
     parser.add_argument('--board-size', type=int, default=15)
     parser.add_argument('--num-workers', type=int, default=20)          # 充分利用 20 核 CPU
-    parser.add_argument('--num-simulations', type=int, default=200)      # MCTS 深度更大
+    parser.add_argument('--num-simulations', type=int, default=100)      # MCTS 深度更大
     parser.add_argument('--train-steps', type=int, default=6000)         # 100 * 20 * 3
     parser.add_argument('--batch-size', type=int, default=256)           # 3090 显存足够
     parser.add_argument('--save_interval', type=int, default=100)
