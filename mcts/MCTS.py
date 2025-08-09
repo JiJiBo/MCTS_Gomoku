@@ -1,11 +1,14 @@
 import math
 import random
 
+import numpy as np
 import torch
+from jinja2.nodes import Continue
+from networkx.classes import edges
 
-from  core.board import GomokuBoard
-from  mcts.MCTS_Node import MCTSNode, Edge
-from  net.GomokuNet import PolicyValueNet
+from core.board import GomokuBoard
+from mcts.MCTS_Node import MCTSNode, Edge
+from net.GomokuNet import PolicyValueNet
 
 
 class MCTS():
@@ -39,7 +42,55 @@ class MCTS():
         return self.get_result(root_node, is_train)
 
     def get_result(self, root_node: MCTSNode, is_train):
-        pass
+        probs = np.zeros((root_node.board.size, root_node.board.size))
+        total_visits = sum(
+            edge.child.visit_count if edge.child is not None else 0 for edge in root_node.children.values())
+        if not is_train:
+            for move, edg, in root_node.children.items():
+                if edg.child is not None:
+                    i, j = move
+                    probs[i][j] = edg.child.visit_count / total_visits if total_visits > 0 else 0
+            return root_node.q_value(), probs
+        else:
+            policy_logits, value = self.model.calc_one_board(root_node.board)
+            good = len(root_node.board.legal_moves())
+            for i in range(root_node.board.size):
+                for j in range(root_node.board.size):
+                    if root_node.board.board[j][i] != 0 or policy_logits[j][i] == 0:
+                        probs[j][i] = 0
+                    else:
+                        probs[j][i] = policy_logits[j][i] / good
+            sum_used = 0
+            moves = []
+            for move, edg in root_node.children.items():
+                if edg.child is not None and edg.child.visit_count != 0:
+                    sum_used += probs[move]
+                    probs[move] = 0
+                    moves.append((move[0], move[1], edg.child))
+            moves.sort(key=lambda x: x[0], reverse=True)
+            value_sum = 0
+            for i in range(0, len(moves)):
+                cnt = moves[i][2].visit_count
+                if i + 1 < len(moves):
+                    cnt += moves[i + 1][2].visit_count
+                if cnt == 0:
+                    continue
+                cur = 1e-9
+                best_pos = i
+                for j in range(0, i + 1):
+                    vals = -moves[j][2].q_value()
+                    if vals > cur:
+                        cur = vals
+                        best_pos = j
+                probs[moves[best_pos][0], moves[best_pos][1]] += sum_used * cnt * (i + 1) / total_visits
+                value_sum += cur * cnt(i + 1) / total_visits
+            for i in range(root_node.board.size):
+                for j in range(root_node.board.size):
+                    if probs[j][i] < 0:
+                        print(good)
+                        print(probs[j][i])
+                        assert False
+            return value_sum, probs
 
     def select_child(self, node: MCTSNode):
         total_visits = sum(
