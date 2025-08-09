@@ -11,12 +11,14 @@ class GomokuBoard:
         self.move_count = 0
         self.last_move = None
         self.history = []  # [(y,x,player_flag)]
+        self.win_path = None  # 连成五子的坐标序列
 
     def reset(self):
         self.board.fill(0)
         self.move_count = 0
         self.last_move = None
         self.history.clear()
+        self.win_path = None
 
     def legal_moves(self):
         ys, xs = np.where(self.board == 0)
@@ -58,6 +60,7 @@ class GomokuBoard:
         self.board[y, x] = 0
         self.move_count -= 1
         self.last_move = (self.history[-1][0], self.history[-1][1]) if self.history else None
+        self.win_path = None
 
     def is_terminal(self):
         return self.winner_from_last() != 0 or self.move_count == self.size * self.size
@@ -74,25 +77,32 @@ class GomokuBoard:
     # ---- 仅检查上一手，O(K) ----
     def winner_from_last(self):
         if self.last_move is None:
+            self.win_path = None
             return 0
         y0, x0 = self.last_move
         p = self.board[y0, x0]
         if p == 0:
+            self.win_path = None
             return 0
         K = self.count_win
         s = self.size
         b = self.board
         for dy, dx in ((0, 1), (1, 0), (1, 1), (-1, 1)):
-            cnt = 1
-            # 向两侧延伸
-            for sy in (-1, 1):
-                y, x = y0 + sy * dy, x0 + sy * dx
-                while 0 <= y < s and 0 <= x < s and b[y, x] == p:
-                    cnt += 1
-                    if cnt >= K:
-                        return int(p)
-                    y += sy * dy
-                    x += sy * dx
+            seq = [(y0, x0)]
+            y, x = y0 - dy, x0 - dx
+            while 0 <= y < s and 0 <= x < s and b[y, x] == p:
+                seq.insert(0, (y, x))
+                y -= dy
+                x -= dx
+            y, x = y0 + dy, x0 + dx
+            while 0 <= y < s and 0 <= x < s and b[y, x] == p:
+                seq.append((y, x))
+                y += dy
+                x += dx
+            if len(seq) >= K:
+                self.win_path = seq[:K]
+                return int(p)
+        self.win_path = None
         return 0
 
     # ---- 4通道特征 ----
