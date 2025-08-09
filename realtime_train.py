@@ -111,7 +111,7 @@ if __name__ == '__main__':
     parser.add_argument('--board-size', type=int, default=15)
     parser.add_argument('--num-workers', type=int, default=2)
     parser.add_argument('--num-simulations', type=int, default=100)
-    parser.add_argument('--train-steps', type=int, default=100)
+    parser.add_argument('--train-steps', type=int, default=100 * 2 * 3)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--queue-size', type=int, default=1024)
     parser.add_argument('--lr', type=float, default=1e-3)

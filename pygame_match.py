@@ -13,12 +13,14 @@ from net.GomokuNet import PolicyValueNet
 
 class Agent:
     """Base agent interface."""
+
     def select_move(self, board: GomokuBoard, player: int):
         raise NotImplementedError
 
 
 class RandomAgent(Agent):
     """Agent that plays random legal moves."""
+
     def select_move(self, board: GomokuBoard, player: int):
         moves = board.legal_moves()
         return random.choice(moves)
@@ -26,6 +28,7 @@ class RandomAgent(Agent):
 
 class MCTSAgent(Agent):
     """Agent that uses MCTS with a neural network model."""
+
     def __init__(self, model: PolicyValueNet, simulations: int = 100):
         self.mcts = MCTS(model)
         self.simulations = simulations
@@ -41,11 +44,11 @@ class ModelAgent(MCTSAgent):
     """Agent that loads a PolicyValueNet model from a checkpoint."""
 
     def __init__(
-        self,
-        model_path: str,
-        board_size: int = 15,
-        device: Optional[str] = None,
-        simulations: int = 100,
+            self,
+            model_path: str,
+            board_size: int = 15,
+            device: Optional[str] = None,
+            simulations: int = 100,
     ):
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -79,7 +82,7 @@ class PygameMatch:
     # ---- helpers ----
     def is_human_turn(self, player: int) -> bool:
         return (player == 1 and self.agent_black is None) or (
-            player == -1 and self.agent_white is None
+                player == -1 and self.agent_white is None
         )
 
     def apply_undo(self) -> int:
@@ -180,5 +183,8 @@ class PygameMatch:
 
 if __name__ == "__main__":
     # Example usage: human vs random agent
-    game = PygameMatch(None, RandomAgent())
+    model = PolicyValueNet()
+    model.load_state_dict(torch.load("realtime_model.pth"))
+    modelAgent = MCTSAgent(model)
+    game = PygameMatch(None, modelAgent)
     game.play()
