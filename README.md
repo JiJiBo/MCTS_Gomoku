@@ -6,3 +6,7 @@
 
 使用 `pygame_match.py` 可以让两个 agent 进行实时对弈并在界面上显示棋盘。
 
+```shell
+python  realtime_train.py  --log-dir "/root/tf-logs/"
+```
+
