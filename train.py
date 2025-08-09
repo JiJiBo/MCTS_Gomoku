@@ -1,50 +1,19 @@
 import argparse
 import os
-import numpy as np
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from core.board import GomokuBoard
-from mcts.MCTS import MCTS
+from dataset import load_self_play_dataset
 from net.GomokuNet import PolicyValueNet
-
-
-def generate_self_play_data(model, games, board_size, simulations):
-    """Generate training samples via self-play using MCTS."""
-    mcts = MCTS(model)
-    boards, policies, values = [], [], []
-    model.eval()
-    with torch.no_grad():
-        for _ in range(games):
-            board = GomokuBoard(board_size)
-            player = 1
-            while not board.is_terminal():
-                _, probs = mcts.run(board, number_samples=simulations, is_train=True)
-                moves = board.legal_moves()
-                move_probs = np.array([probs[y, x] for y, x in moves], dtype=np.float32)
-                if move_probs.sum() <= 0:
-                    move_probs = np.ones(len(moves), dtype=np.float32) / len(moves)
-                else:
-                    move_probs /= move_probs.sum()
-                move = moves[np.random.choice(len(moves), p=move_probs)]
-                board.step(move, player)
-                player = -player
-            b, p, v, _ = mcts.get_train_data()
-            boards.extend(b)
-            policies.extend(p)
-            values.extend(v)
-    boards = torch.stack(boards)
-    policies = torch.stack([pi.view(-1) for pi in policies])
-    values = torch.tensor(values, dtype=torch.float32)
-    return TensorDataset(boards, policies, values)
 
 
 def train(args):
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
 
+    dataset = load_self_play_dataset(args.data_dir)
     model = PolicyValueNet(board_size=args.board_size)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -53,13 +22,12 @@ def train(args):
     global_step = 0
 
     for epoch in range(1, args.epochs + 1):
-        dataset = generate_self_play_data(model, args.self_play_games, args.board_size, args.simulations)
         loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
         model.train()
         for boards, target_pi, target_v in loader:
             boards = boards.to(device)
             target_pi = target_pi.to(device)
-            target_v = target_v.to(device).unsqueeze(-1)
+            target_v = target_v.to(device).view(-1, 1)
 
             pred_pi, pred_v = model(boards)
             policy_loss = -(target_pi * torch.log(pred_pi + 1e-8)).sum(dim=1).mean()
@@ -83,9 +51,8 @@ def train(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train Gomoku policy-value network with self-play data')
-    parser.add_argument('--self-play-games', type=int, default=10, help='number of self-play games to generate')
-    parser.add_argument('--simulations', type=int, default=100, help='MCTS simulations per move')
+    parser = argparse.ArgumentParser(description='Train Gomoku policy-value network')
+    parser.add_argument('--data-dir', type=str, required=True, help='directory with self-play .npz files')
     parser.add_argument('--save-path', type=str, default='policy_value_net.pth', help='path to save the trained model')
     parser.add_argument('--log-dir', type=str, default='runs', help='directory for TensorBoard logs')
     parser.add_argument('--batch-size', type=int, default=64)
