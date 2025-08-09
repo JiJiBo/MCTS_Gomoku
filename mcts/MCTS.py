@@ -19,8 +19,21 @@ class MCTS():
         self.c_puct = c_puct
         self.visit_nodes = []
 
-    def run(self, root_board: GomokuBoard, number_samples=100, is_train=False):
-        root_node = MCTSNode(root_board, player=1)
+    def run(self, root_board: GomokuBoard, player: int, number_samples=100, is_train=False):
+        """Run MCTS search from the given board state.
+
+        Parameters
+        ----------
+        root_board : GomokuBoard
+            Current board state to search from.
+        player : int
+            Player to move at the root (+1 for black, -1 for white).
+        number_samples : int
+            Number of simulations to run.
+        is_train : bool
+            Whether in training mode (affects policy temperature).
+        """
+        root_node = MCTSNode(root_board, player=player)
         self.visit_nodes.append(root_node)
         for _ in range(number_samples):
             node = root_node
@@ -219,8 +232,17 @@ class MCTS():
             node.children[(y, x)] = Edge(None, float(p))
         return float(value)
 
-    def get_train_data(self):
+    def get_train_data(self, game_result: int | None = None):
         """Collect training samples from all visited root nodes.
+
+        Parameters
+        ----------
+        game_result : int or None
+            Final outcome of the self-play game from black's perspective
+            (1 for black win, -1 for white win, 0 for draw/undecided). If
+            provided, each sample's value will be this result from the root
+            player's perspective. If ``None`` the root node's mean value from
+            search is used instead.
 
         Returns
         -------
@@ -230,7 +252,7 @@ class MCTS():
         policies : list of torch.FloatTensor
             Visit-count distribution over moves for each root.
         values : list of float
-            Mean value of the root node from the search.
+            Target value for each root node.
         weights : list of float
             A simple weight proportional to the square root of total visits.
         """
@@ -261,7 +283,10 @@ class MCTS():
 
             boards.append(board_tensor)
             policies.append(torch.from_numpy(probs).float())
-            values.append(float(root.q_value()))
+            if game_result is None:
+                values.append(float(root.q_value()))
+            else:
+                values.append(float(game_result if root.player == 1 else -game_result))
             weights.append(math.sqrt(total_visits))
 
         # 清空以便下一局使用
