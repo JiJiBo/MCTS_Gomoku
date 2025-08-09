@@ -127,12 +127,12 @@ def train_realtime(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Real-time training with self-play MCTS data')
     parser.add_argument('--board-size', type=int, default=15)
-    parser.add_argument('--num-workers', type=int, default=20)          # 充分利用 20 核 CPU
+    parser.add_argument('--num-workers', type=int, default=17)          #
     parser.add_argument('--num-simulations', type=int, default=100)      # MCTS 深度更大
-    parser.add_argument('--train-steps', type=int, default=6000)         # 100 * 20 * 3
-    parser.add_argument('--batch-size', type=int, default=256)           # 3090 显存足够
-    parser.add_argument('--save_interval', type=int, default=100)
-    parser.add_argument('--queue-size', type=int, default=4096)          # 较大的自对弈数据缓存
+    parser.add_argument('--train-steps', type=int, default=1000)
+    parser.add_argument('--batch-size', type=int, default=512)           # 3090 显存足够
+    parser.add_argument('--save_interval', type=int, default=50)
+    parser.add_argument('--queue-size', type=int, default=2048)          # 较大的自对弈数据缓存
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--log-dir', type=str, default='/root/tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
