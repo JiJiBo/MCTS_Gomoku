@@ -171,7 +171,7 @@ if __name__ == '__main__':
                         help='number of simulations for weak_mcts opponent')
     parser.add_argument('--train-steps', type=int, default=1000)
     parser.add_argument('--batch-size', type=int, default=512)           # 3090 显存足够
-    parser.add_argument('--save_interval', type=int, default=50)
+    parser.add_argument('--save_interval', type=int, default=20)
     parser.add_argument('--queue-size', type=int, default=2048)          # 较大的自对弈数据缓存
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--log-dir', type=str, default='/root/tf-logs/')

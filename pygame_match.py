@@ -184,7 +184,7 @@ class PygameMatch:
 if __name__ == "__main__":
     # Example usage: human vs random agent
     model = PolicyValueNet()
-    model.load_state_dict(torch.load("mem0.pth"))
+    model.load_state_dict(torch.load("mem.pth"))
     modelAgent = MCTSAgent(model)
-    game = PygameMatch(None, modelAgent)
+    game = PygameMatch(modelAgent, modelAgent)
     game.play()
