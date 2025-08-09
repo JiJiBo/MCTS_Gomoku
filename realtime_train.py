@@ -14,28 +14,53 @@ from mcts.MCTS import MCTS
 from net.GomokuNet import PolicyValueNet
 
 
-def selfplay_worker(worker_id: int, model: PolicyValueNet, data_queue: queue.Queue,
-                    stop_event: threading.Event, model_lock: threading.Lock,
-                    num_simulations: int):
-    """Generate self-play data using MCTS and push to a queue."""
+def selfplay_worker(
+    worker_id: int,
+    model: PolicyValueNet,
+    data_queue: queue.Queue,
+    stop_event: threading.Event,
+    model_lock: threading.Lock,
+    num_simulations: int,
+    opponent_type: str = "self",
+    opponent_simulations: int | None = None,
+):
+    """Generate training data by playing against a weaker opponent."""
     print(f"[Worker {worker_id}] Starting self-play worker.")
     local_model = PolicyValueNet(board_size=model.H)
+    opponent_simulations = opponent_simulations or max(1, num_simulations // 10)
     while not stop_event.is_set():
         # Refresh local model parameters
         with model_lock:
             local_model.load_state_dict(model.state_dict())
-        mcts = MCTS(local_model)
+        strong_mcts = MCTS(local_model)
+        weak_mcts = MCTS(local_model) if opponent_type == "weak_mcts" else None
         board = GomokuBoard(size=model.H)
         player = 1
         while not board.is_terminal() and not stop_event.is_set():
-            _, probs = mcts.run(board, player, number_samples=num_simulations, is_train=True)
-            flat = probs.reshape(-1)
-            move = np.random.choice(len(flat), p=flat)
-            y, x = divmod(move, board.size)
+            if player == 1 or opponent_type == "self":
+                _, probs = strong_mcts.run(
+                    board, player, number_samples=num_simulations, is_train=True
+                )
+                flat = probs.reshape(-1)
+                move = np.random.choice(len(flat), p=flat)
+            elif opponent_type == "random":
+                legal = board.legal_moves()
+                move = random.choice(legal)
+                y, x = move
+                board.step((y, x), player)
+                player = -player
+                continue
+            else:  # weak_mcts
+                _, probs = weak_mcts.run(
+                    board, player, number_samples=opponent_simulations, is_train=False
+                )
+                flat = probs.reshape(-1)
+                move = np.random.choice(len(flat), p=flat)
+            y, x = move if isinstance(move, tuple) else divmod(move, board.size)
             board.step((y, x), player)
             player = -player
         result = board.winner()
-        boards, policies, values, _ = mcts.get_train_data(game_result=result)
+        boards, policies, values, _ = strong_mcts.get_train_data(game_result=result)
         for b, p, v in zip(boards, policies, values):
             data_queue.put((b, p.view(-1), v))
     print(f"[Worker {worker_id}] Stopped self-play worker.")
@@ -68,9 +93,20 @@ def train_realtime(args):
 
     workers = []
     for i in range(args.num_workers):
-        t = threading.Thread(target=selfplay_worker,
-                             args=(i, model, data_queue, stop_event, model_lock, args.num_simulations),
-                             daemon=True)
+        t = threading.Thread(
+            target=selfplay_worker,
+            args=(
+                i,
+                model,
+                data_queue,
+                stop_event,
+                model_lock,
+                args.num_simulations,
+                args.opponent_type,
+                args.opponent_simulations,
+            ),
+            daemon=True,
+        )
         t.start()
         workers.append(t)
 
@@ -129,6 +165,10 @@ if __name__ == '__main__':
     parser.add_argument('--board-size', type=int, default=15)
     parser.add_argument('--num-workers', type=int, default=17)          #
     parser.add_argument('--num-simulations', type=int, default=100)      # MCTS 深度更大
+    parser.add_argument('--opponent-type', type=str, choices=['self', 'random', 'weak_mcts'], default='self',
+                        help='type of opponent for training: self, random, or weak_mcts')
+    parser.add_argument('--opponent-simulations', type=int, default=10,
+                        help='number of simulations for weak_mcts opponent')
     parser.add_argument('--train-steps', type=int, default=1000)
     parser.add_argument('--batch-size', type=int, default=512)           # 3090 显存足够
     parser.add_argument('--save_interval', type=int, default=50)
