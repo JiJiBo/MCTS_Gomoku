@@ -45,12 +45,10 @@ class MCTS():
                 n.visit_count += 1
                 n.total_value += value
                 value = -value
-        print("Visit nodes:", len(self.visit_nodes), "over")
         return self.get_result(root_node, is_train)
 
     def get_result(self, root_node: MCTSNode, is_train):
         """Get the result of the MCTS search."""
-        print("Get the result of the MCTS search.")
         size = root_node.board.size
         board_mat = root_node.board.board
         legal_mask = (board_mat == 0)
@@ -104,7 +102,6 @@ class MCTS():
                     cnt = int(legal_mask.sum())
                     if cnt > 0:
                         probs = legal_mask.astype(np.float32) / float(cnt)
-            print("get_result over")
             return root_value, probs
 
         temperature_train = 1.0
@@ -162,7 +159,6 @@ class MCTS():
             cnt = int(legal_mask.sum())
             if cnt > 0:
                 probs = legal_mask.astype(np.float32) / float(cnt)
-        print("get_result over")
         return root_value, probs
 
     def select_child(self, node: MCTSNode):
