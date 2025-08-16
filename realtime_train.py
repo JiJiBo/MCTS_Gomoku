@@ -102,7 +102,6 @@ def train_realtime(args, update_threshold=0.6):
     # 定义优化器
     optimizer = torch.optim.Adam(strong_model.parameters(), lr=0.2)
 
-    # 分段衰减: 在训练的第 300, 600, 900 步降低学习率
     milestones = [30, 60, 90]
     gamma = 0.1  # 每次降低到原来的 0.1
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
