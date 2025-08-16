@@ -6,6 +6,7 @@ import queue
 import numpy as np
 import torch
 import torch.nn.functional as F
+import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import time  # 为了添加日志时间戳
 
@@ -102,7 +103,7 @@ def train(args):
 
     global_step = 0
     try:
-        for step in range(args.train_steps):
+        for step in tqdm.trange(args.train_steps,desc="Training"):
             batch = []
             while len(batch) < args.batch_size:
                 try:

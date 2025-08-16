@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import logging  # 导入日志模块
 
+import tqdm
+
 from core.board import GomokuBoard
 from mcts.MCTS_Node import MCTSNode, Edge
 from net.GomokuNet import PolicyValueNet
@@ -26,7 +28,7 @@ class MCTS():
         """Run MCTS search from the given board state."""
         root_node = MCTSNode(root_board, player=player)
         self.visit_nodes.append(root_node)
-        for _ in range(number_samples):
+        for _ in tqdm.trange(number_samples,desc='MCTS'):
             node = root_node
             search_path = [node]
             while node.children:

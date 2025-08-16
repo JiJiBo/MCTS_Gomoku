@@ -9,6 +9,8 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import time  # 为了添加日志时间戳
 
+import tqdm
+
 from core.board import GomokuBoard
 from mcts.MCTS import MCTS
 from net.GomokuNet import PolicyValueNet
@@ -114,7 +116,7 @@ def train_realtime(args):
 
     global_step = 0
     try:
-        for step in range(args.train_steps):
+        for step in tqdm.trange(args.train_steps,desc="Training"):
             batch = []
             while len(batch) < args.batch_size:
                 try:
