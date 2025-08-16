@@ -176,8 +176,8 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
             scheduler.step()
 
             writer.add_scalar('loss/total_loss', loss.item(), global_step)
-            writer.add_scalar('loss/policy_loss', policy_loss.item(), global_step)
-            writer.add_scalar('loss/value_loss', value_loss.item(), global_step)
+            writer.add_scalar('loss/policy_loss', weighted_policy_loss.item(), global_step)
+            writer.add_scalar('loss/value_loss', weighted_value_loss.item(), global_step)
             writer.add_scalar('metric/avg_winner_rate', float(np.mean(recent_results)) if recent_results else 0.0,
                               global_step)
             writer.add_scalar('lr/current_lr', scheduler.get_last_lr()[0], global_step)
