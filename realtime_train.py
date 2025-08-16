@@ -5,6 +5,7 @@ import multiprocessing as mp
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 import time
 import tqdm
@@ -76,11 +77,11 @@ def selfplay_worker(worker_id, strong_model_state, weak_model_state, data_queue,
             board.step((y, x), player)
             player = -player
 
-        boards, policies, values, _ = strong_mcts.get_train_data(game_result=board.winner())
-        for b, p, v in zip(boards, policies, values):
+        boards, policies, values, weights = strong_mcts.get_train_data(game_result=board.winner())
+        for b, p, v, w in zip(boards, policies, values, weights):
             while not stop_event.is_set():
                 try:
-                    data_queue.put((b, p.reshape(-1), v), timeout=1)
+                    data_queue.put((b, p.reshape(-1), v, w), timeout=1)
                     break
                 except mp.queues.Full:
                     continue
@@ -99,9 +100,9 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
 
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     strong_model = PolicyValueNet(board_size=args.board_size).to(device)
-    resume_path = "./check_dir/run36/model_step20.pth"
-    if os.path.exists(resume_path):
-        strong_model.load_state_dict(torch.load(resume_path, map_location=device))
+    # resume_path = "./check_dir/run36/model_step20.pth"
+    # if os.path.exists(resume_path):
+    #     strong_model.load_state_dict(torch.load(resume_path, map_location=device))
     weak_model = PolicyValueNet(board_size=args.board_size).to(device)
 
     optimizer = torch.optim.Adam(strong_model.parameters(), lr=0.2)
@@ -113,7 +114,8 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
 
     data_queue = mp.Queue(maxsize=args.queue_size)
     stop_event = mp.Event()
-
+    value_criterion = nn.MSELoss(reduction='none')
+    policy_criterion = nn.KLDivLoss(reduction='none')
     strong_model_state = {k: v.cpu() for k, v in strong_model.state_dict().items()}
     weak_model_state = {k: v.cpu() for k, v in weak_model.state_dict().items()}
 
@@ -154,14 +156,19 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
             #     except Exception:
             #         break
 
-            boards = torch.stack([b for b, _, _ in batch]).to(device)
-            policies = torch.stack([p for _, p, _ in batch]).to(device)
-            values = torch.tensor([v for _, _, v in batch], dtype=torch.float32).reshape(-1, 1).to(device)
+            boards = torch.stack([b for b, _, _, _ in batch]).to(device)
+            policies = torch.stack([p for _, p, _, _ in batch]).to(device)
 
+            values = torch.tensor([v for _, _, v, _ in batch], dtype=torch.float32).reshape(-1, 1).to(device)
+            weights = torch.tensor([w for _, _, _, w in batch], dtype=torch.float32).reshape(-1, 1).to(device)
             pred_pi, pred_v = strong_model(boards)
-            policy_loss = -(policies * torch.log(pred_pi + 1e-8)).sum(dim=1).mean()
-            value_loss = F.mse_loss(pred_v, values)
-            loss = policy_loss + value_loss
+            value_loss = value_criterion(pred_v, values).squeeze(1)
+            policy_loss = policy_criterion(F.log_softmax(pred_pi, dim=1),
+                                           policies.view(-1, policies.size(-1))).sum(dim=1, keepdim=True)
+            weighted_value_loss = (value_loss * weights).mean()
+            weighted_policy_loss = (policy_loss * weights).mean()
+
+            loss = 2 * weighted_value_loss + weighted_policy_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -214,7 +221,7 @@ if __name__ == '__main__':
     parser.add_argument('--log-dir', type=str, default='/root/tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
     parser.add_argument('--no-cuda', action='store_true', help='禁用 CUDA')
-    parser.add_argument('--update-threshold', type=float, default=0.6, help='弱模型更新胜率阈值')
+    parser.add_argument('--update-threshold', type=float, default=0.55, help='弱模型更新胜率阈值')
     args = parser.parse_args()
 
     print(f"[训练开始] 开始时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
