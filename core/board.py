@@ -1,5 +1,4 @@
 import copy
-
 import numpy as np
 
 
@@ -29,7 +28,6 @@ class GomokuBoard:
         return m.reshape(-1) if flat else m
 
     def step(self, move, player_flag, return_info: bool = False):
-        """默认兼容旧返回；若 return_info=True，返回 (board, winner, done)"""
         y, x = move
         if player_flag not in (-1, 1):
             raise ValueError("player_flag must be +1 (Black) or -1 (White).")
@@ -49,11 +47,9 @@ class GomokuBoard:
         if return_info:
             return self.board, w, done
         else:
-            # 兼容你之前的用法
             return self.board, player_flag
 
     def undo(self):
-        """回退一步；若无步可退则抛错"""
         if not self.history:
             raise RuntimeError("no move to undo")
         y, x, _ = self.history.pop()
@@ -69,12 +65,10 @@ class GomokuBoard:
         return self.move_count
 
     def winner(self):
-        """1(黑胜)/-1(白胜)/0(未分胜负或和棋)"""
         if self.move_count == self.size * self.size and self.winner_from_last() == 0:
-            return 0  # 和棋 or 未分胜负（交由外部 is_terminal 判断）
+            return 0
         return self.winner_from_last()
 
-    # ---- 仅检查上一手，O(K) ----
     def winner_from_last(self):
         if self.last_move is None:
             self.win_path = None
@@ -105,15 +99,7 @@ class GomokuBoard:
         self.win_path = None
         return 0
 
-    # ---- 4通道特征 ----
     def get_planes_4ch(self, current_player: int):
-        """
-        [4,H,W]:
-          0 我方(相对 current_player) 1/0
-          1 对方 1/0
-          2 空白 1/0
-          3 上一步 one-hot
-        """
         if current_player not in (-1, 1):
             raise ValueError("current_player must be +1 or -1")
         b = self.board
@@ -126,6 +112,37 @@ class GomokuBoard:
             last[y, x] = 1.0
         return np.stack([me, opp, empty, last], axis=0).astype(np.float32)
 
+    def get_planes_9ch(self, current_player: int, history_len: int = 4):
+        """
+        [9,H,W]:
+          - 前4步的历史局面，每步2层(黑,白)
+          - 当前走子方指示平面(全1/0)
+        """
+        if current_player not in (-1, 1):
+            raise ValueError("current_player must be +1 or -1")
+
+        H, W = self.size, self.size
+        planes = []
+        # 最近 history_len 步（不足则补零）
+        for i in range(history_len):
+            idx = -(i + 1)
+            if len(self.history) + idx < 0:
+                planes.append(np.zeros((H, W), dtype=np.float32))
+                planes.append(np.zeros((H, W), dtype=np.float32))
+            else:
+                board_copy = np.zeros((H, W), dtype=np.int8)
+                for (y, x, p) in self.history[: idx + 1]:
+                    board_copy[y, x] = p
+                me = (board_copy == current_player).astype(np.float32)
+                opp = (board_copy == -current_player).astype(np.float32)
+                planes.append(me)
+                planes.append(opp)
+
+        # 当前走子方指示通道
+        indicator = np.full((H, W), 1.0 if current_player == 1 else 0.0, dtype=np.float32)
+        planes.append(indicator)
+        return np.stack(planes, axis=0).astype(np.float32)
+
     def copy(self):
         new_board = GomokuBoard(self.size, self.count_win)
         new_board.board = copy.deepcopy(self.board)
@@ -133,7 +150,6 @@ class GomokuBoard:
         return new_board
 
     def is_win(self, player_flag):
-        """检查某个玩家是否获胜"""
         directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
         for y in range(self.size):
             for x in range(self.size):

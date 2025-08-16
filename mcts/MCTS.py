@@ -64,7 +64,7 @@ class MCTS():
             root_value = float(root_node.q_value())
         else:
             policy_logits_net, value_net = self.model.calc_one_board(
-                root_node.board.get_planes_4ch(root_node.player)
+                root_node.board.get_planes_9ch(root_node.player)
             )
             root_value = float(value_net)
 
@@ -87,7 +87,7 @@ class MCTS():
                         assign_by_moves(items, x / Z)
             else:
                 policy_logits_net, _ = self.model.calc_one_board(
-                    root_node.board.get_planes_4ch(root_node.player)
+                    root_node.board.get_planes_9ch(root_node.player)
                 )
                 prior = np.where(legal_mask, policy_logits_net, 0.0).astype(np.float32)
                 s = float(prior.sum())
@@ -103,7 +103,7 @@ class MCTS():
         prior_backfill_eps = 0.10
 
         policy_logits_net, _ = self.model.calc_one_board(
-            root_node.board.get_planes_4ch(root_node.player)
+            root_node.board.get_planes_9ch(root_node.player)
         )
         prior = np.where(legal_mask, policy_logits_net, 0.0).astype(np.float32)
         ps = float(prior.sum())
@@ -184,7 +184,7 @@ class MCTS():
 
     def expand_node(self, node: MCTSNode):
         policy_logits, value = self.model.calc_one_board(
-            torch.from_numpy(node.board.get_planes_4ch(node.player))
+            torch.from_numpy(node.board.get_planes_9ch(node.player))
         )
         moves = node.board.legal_moves()
         priors = np.array([policy_logits[y, x] for y, x in moves], dtype=np.float32)
@@ -225,7 +225,7 @@ class MCTS():
             probs /= float(total_visits)
 
             board_tensor = torch.from_numpy(
-                root.board.get_planes_4ch(root.player)
+                root.board.get_planes_9ch(root.player)
             ).float()
 
             boards.append(board_tensor)

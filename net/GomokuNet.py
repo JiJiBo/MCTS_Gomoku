@@ -26,7 +26,7 @@ class PolicyValueNet(nn.Module):
     输出: policy_logits[B, H*W], value[B, 1]
     """
 
-    def __init__(self, in_channels=4, channels=128, num_blocks=8, board_size=15):
+    def __init__(self, in_channels=9, channels=128, num_blocks=8, board_size=15):
         super().__init__()
         self.H = self.W = board_size
         # Stem
@@ -93,3 +93,13 @@ class PolicyValueNet(nn.Module):
         )
         value = float(value.squeeze().item())
         return policy_logits, value
+
+
+if __name__ == '__main__':
+    model = PolicyValueNet()
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f"Total parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")

@@ -15,14 +15,14 @@ from net.GomokuNet import PolicyValueNet
 
 
 def selfplay_worker(
-    worker_id: int,
-    model: PolicyValueNet,
-    data_queue: queue.Queue,
-    stop_event: threading.Event,
-    model_lock: threading.Lock,
-    num_simulations: int,
-    opponent_type: str = "self",
-    opponent_simulations: int | None = None,
+        worker_id: int,
+        model: PolicyValueNet,
+        data_queue: queue.Queue,
+        stop_event: threading.Event,
+        model_lock: threading.Lock,
+        num_simulations: int,
+        opponent_type: str = "self",
+        opponent_simulations: int | None = None,
 ):
     """Generate training data by playing against a weaker opponent."""
     print(f"[Worker {worker_id}] Starting self-play worker.")
@@ -163,22 +163,21 @@ def train_realtime(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Real-time training with self-play MCTS data')
     parser.add_argument('--board-size', type=int, default=15)
-    parser.add_argument('--num-workers', type=int, default=17)          #
-    parser.add_argument('--num-simulations', type=int, default=100)      # MCTS 深度更大
+    parser.add_argument('--num-workers', type=int, default=17)  #
+    parser.add_argument('--num-simulations', type=int, default=800)  # MCTS 深度更大
     parser.add_argument('--opponent-type', type=str, choices=['self', 'random', 'weak_mcts'], default='self',
                         help='type of opponent for training: self, random, or weak_mcts')
     parser.add_argument('--opponent-simulations', type=int, default=10,
                         help='number of simulations for weak_mcts opponent')
     parser.add_argument('--train-steps', type=int, default=1000)
-    parser.add_argument('--batch-size', type=int, default=512)           # 3090 显存足够
+    parser.add_argument('--batch-size', type=int, default=512)  # 3090 显存足够
     parser.add_argument('--save_interval', type=int, default=20)
-    parser.add_argument('--queue-size', type=int, default=2048)          # 较大的自对弈数据缓存
+    parser.add_argument('--queue-size', type=int, default=2048)  # 较大的自对弈数据缓存
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--log-dir', type=str, default='/root/tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
     parser.add_argument('--no-cuda', action='store_true', help='disable CUDA')
     args = parser.parse_args()
-
 
     # 开始训练前输出开始时间
     print(f"[Training Start] Training started at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
