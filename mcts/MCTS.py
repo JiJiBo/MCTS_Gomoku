@@ -220,8 +220,22 @@ class MCTS():
 
         return float(value)
 
+    def augment_data(self, board_tensor, policy_tensor):
+        """生成旋转和镜像增强数据"""
+        augmented_boards = []
+        augmented_policies = []
+        for k in range(4):  # 旋转 0, 90, 180, 270
+            b_rot = torch.rot90(board_tensor, k, dims=[1, 2])
+            p_rot = torch.rot90(policy_tensor, k, dims=[0, 1])
+            augmented_boards.append(b_rot)
+            augmented_policies.append(p_rot)
+            # 水平翻转
+            augmented_boards.append(torch.flip(b_rot, [2]))
+            augmented_policies.append(torch.flip(p_rot, [1]))
+        return augmented_boards, augmented_policies
+
     def get_train_data(self, game_result: int | None = None):
-        """Collect training samples from all visited root nodes."""
+        """Collect training samples from all visited root nodes with 8x augmentation."""
         logging.info(f"Collecting training data with game result {game_result}.")
         boards, policies, values, weights = [], [], [], []
 
@@ -242,20 +256,20 @@ class MCTS():
                 continue
 
             probs /= float(total_visits)
+            board_tensor = torch.from_numpy(root.board.get_planes_9ch(root.player)).float()
+            policy_tensor = torch.from_numpy(probs).float()
 
-            board_tensor = torch.from_numpy(
-                root.board.get_planes_9ch(root.player)
-            ).float()
+            # 数据增强 8 倍
+            aug_boards, aug_policies = self.augment_data(board_tensor, policy_tensor)
 
-            boards.append(board_tensor)
-            policies.append(torch.from_numpy(probs).float())
-            if game_result is None:
-                values.append(float(root.q_value()))
-            else:
-                values.append(float(game_result if root.player == 1 else -game_result))
-            weights.append(math.sqrt(total_visits))
+            value = float(root.q_value()) if game_result is None else float(game_result if root.player == 1 else -game_result)
+            weight = math.sqrt(total_visits)
+
+            boards.extend(aug_boards)
+            policies.extend(aug_policies)
+            values.extend([value] * len(aug_boards))
+            weights.extend([weight] * len(aug_boards))
 
         self.visit_nodes.clear()
-
-        logging.info(f"Collected {len(boards)} training samples.")
+        logging.info(f"Collected {len(boards)} training samples (after augmentation).")
         return boards, policies, values, weights

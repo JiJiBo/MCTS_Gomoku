@@ -86,6 +86,8 @@ def selfplay_worker(worker_id, strong_model, weak_model, data_queue, stop_event,
             boards, policies, values, _ = strong_mcts.get_train_data(game_result=result)
             for b, p, v in zip(boards, policies, values):
                 data_queue.put((b, p.view(-1), v))
+            print(f" data_queue size: {data_queue.qsize()}")
+
     except  Exception as e:
         print(f"[Worker {worker_id}] Stopping self-play worker by  {e}.")
     print(f"[Worker {worker_id}] Stopped self-play worker.")
