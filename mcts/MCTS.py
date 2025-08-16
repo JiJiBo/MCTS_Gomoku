@@ -75,6 +75,8 @@ class MCTS():
 
         def assign_by_moves(moves_list, weights):
             for (mv, _child, _prior), w in zip(moves_list, weights):
+                if not np.isfinite(w):
+                    w = 0.0
                 y, x = mv
                 probs[y, x] = float(w)
 
@@ -86,10 +88,18 @@ class MCTS():
                     y, x = items[idx][0]
                     probs[y, x] = 1.0
                 else:
-                    x = visit_counts ** (1.0 / max(1e-6, temperature_eval))
-                    Z = float(x.sum())
-                    if Z > 0:
-                        assign_by_moves(items, x / Z)
+                    if temperature_eval < 1e-3:
+                        x = np.zeros_like(visit_counts, dtype=np.float64)
+                        x[np.argmax(visit_counts)] = 1.0
+                    else:
+                        log_v = np.log(visit_counts + 1e-8)
+                        exponent = np.clip(log_v / temperature_eval, a_min=None, a_max=50)
+                        x = np.exp(exponent)
+
+                    Z = np.sum(x)
+                    if not np.isfinite(Z) or Z == 0:
+                        Z = 1.0  # 避免 NaN
+                    assign_by_moves(items, x / Z)
             else:
                 policy_logits_net, _ = self.model.calc_one_board(
                     root_node.board.get_planes_9ch(root_node.player)
