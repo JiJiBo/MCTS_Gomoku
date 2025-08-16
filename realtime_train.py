@@ -100,7 +100,8 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     strong_model = PolicyValueNet(board_size=args.board_size).to(device)
     resume_path = "./check_dir/run36/model_step20.pth"
-    strong_model.load_state_dict(torch.load(resume_path, map_location=device))
+    if os.path.exists(resume_path):
+        strong_model.load_state_dict(torch.load(resume_path, map_location=device))
     weak_model = PolicyValueNet(board_size=args.board_size).to(device)
 
     optimizer = torch.optim.Adam(strong_model.parameters(), lr=0.2)
