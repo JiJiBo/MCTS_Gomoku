@@ -99,9 +99,13 @@ def train_realtime(args, update_threshold=0.6):
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     strong_model = PolicyValueNet(board_size=args.board_size).to(device)
     weak_model = PolicyValueNet(board_size=args.board_size).to(device)
-    optimizer = torch.optim.Adam(strong_model.parameters(), lr=args.lr)
+    # 定义优化器
+    optimizer = torch.optim.Adam(strong_model.parameters(), lr=0.2)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train_steps)
+    # 分段衰减: 在训练的第 300, 600, 900 步降低学习率
+    milestones = [30, 60, 90]
+    gamma = 0.1  # 每次降低到原来的 0.1
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
 
     writer = SummaryWriter(os.path.join(args.log_dir, time.strftime("%Y%m%d-%H%M%S")))
 
@@ -201,7 +205,6 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--save-interval', type=int, default=20)
     parser.add_argument('--queue-size', type=int, default=512)
-    parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--log-dir', type=str, default='./tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
     parser.add_argument('--no-cuda', action='store_true', help='禁用 CUDA')
