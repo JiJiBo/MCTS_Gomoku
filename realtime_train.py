@@ -144,6 +144,10 @@ def train_realtime(args, update_threshold=0.6):
             while len(batch) < args.batch_size:
                 try:
                     batch.append(data_queue.get(timeout=1))
+                    current_time = time.time()
+                    if current_time - last_print_time >= 300:  # 300秒 = 5分钟
+                        print(f"[Train Step {step}] Current batch length: {len(batch)}")
+                        last_print_time = current_time
                 except queue.Empty:
                     if stop_event.is_set():
                         break
@@ -154,10 +158,7 @@ def train_realtime(args, update_threshold=0.6):
                 break
 
             # 每隔5分钟打印一次 batch 长度
-            current_time = time.time()
-            if current_time - last_print_time >= 300:  # 300秒 = 5分钟
-                print(f"[Train Step {step}] Current batch length: {len(batch)}")
-                last_print_time = current_time
+
 
             boards = torch.stack([b for b, _, _ in batch]).to(device)
             policies = torch.stack([p for _, p, _ in batch]).to(device)
