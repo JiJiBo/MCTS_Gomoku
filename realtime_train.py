@@ -99,10 +99,12 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
 
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     strong_model = PolicyValueNet(board_size=args.board_size).to(device)
+    resume_path = "./check_dir/run36/model_step20.pth"
+    strong_model.load_state_dict(torch.load(resume_path, map_location=device))
     weak_model = PolicyValueNet(board_size=args.board_size).to(device)
 
     optimizer = torch.optim.Adam(strong_model.parameters(), lr=0.2)
-    milestones = [100, 300, 600]
+    milestones = [30, 60, 90]
     gamma = 0.1
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
 
