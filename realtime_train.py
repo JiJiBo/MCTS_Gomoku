@@ -168,15 +168,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Real-time training with self-play MCTS data')
     parser.add_argument('--board-size', type=int, default=15)
     parser.add_argument('--num-workers', type=int, default=23)  #
-    parser.add_argument('--num-simulations', type=int, default=800)  # MCTS 深度更大
+    parser.add_argument('--num-simulations', type=int, default=1600)  # MCTS 深度更大
     parser.add_argument('--opponent-type', type=str, choices=['self', 'random', 'weak_mcts'], default='self',
                         help='type of opponent for training: self, random, or weak_mcts')
     parser.add_argument('--opponent-simulations', type=int, default=10,
                         help='number of simulations for weak_mcts opponent')
     parser.add_argument('--train-steps', type=int, default=1000)
-    parser.add_argument('--batch-size', type=int, default=1024)  # 3090 显存足够
+    parser.add_argument('--batch-size', type=int, default=4096)  # 5090 显存足够
     parser.add_argument('--save_interval', type=int, default=20)
-    parser.add_argument('--queue-size', type=int, default=2048)  # 较大的自对弈数据缓存
+    parser.add_argument('--queue-size', type=int, default=32768)  # 较大的自对弈数据缓存
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--log-dir', type=str, default='/root/tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
