@@ -28,7 +28,8 @@ class MCTS():
         """Run MCTS search from the given board state."""
         root_node = MCTSNode(root_board, player=player)
         self.visit_nodes.append(root_node)
-        for _ in tqdm.trange(number_samples,desc='MCTS'):
+        print("Visit nodes:", len(self.visit_nodes))
+        for _ in range(number_samples):
             node = root_node
             search_path = [node]
             while node.children:
