@@ -77,10 +77,12 @@ def selfplay_worker(worker_id, strong_model_state, weak_model_state, data_queue,
 
         boards, policies, values, _ = strong_mcts.get_train_data(game_result=board.winner())
         for b, p, v in zip(boards, policies, values):
-            try:
-                data_queue.put((b, p.reshape(-1), v), block=False)
-            except mp.queues.Full:
-                continue
+            while not stop_event.is_set():
+                try:
+                    data_queue.put((b, p.reshape(-1), v), timeout=1)
+                    break
+                except mp.queues.Full:
+                    continue
 
 
 def train_realtime(args, update_threshold=0.6):
@@ -98,6 +100,8 @@ def train_realtime(args, update_threshold=0.6):
     strong_model = PolicyValueNet(board_size=args.board_size).to(device)
     weak_model = PolicyValueNet(board_size=args.board_size).to(device)
     optimizer = torch.optim.Adam(strong_model.parameters(), lr=args.lr)
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.train_steps)
 
     writer = SummaryWriter(os.path.join(args.log_dir, time.strftime("%Y%m%d-%H%M%S")))
 
@@ -137,6 +141,13 @@ def train_realtime(args, update_threshold=0.6):
             if len(batch) == 0:
                 continue
 
+            # 确保队列中剩余数据也被利用
+            while not data_queue.empty() and len(batch) < args.batch_size:
+                try:
+                    batch.append(data_queue.get_nowait())
+                except Exception:
+                    break
+
             boards = torch.stack([b for b, _, _ in batch]).to(device)
             policies = torch.stack([p for _, p, _ in batch]).to(device)
             values = torch.tensor([v for _, _, v in batch], dtype=torch.float32).reshape(-1, 1).to(device)
@@ -149,6 +160,7 @@ def train_realtime(args, update_threshold=0.6):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             winner_rate = (values > 0).float().mean().item()
             recent_results.append(winner_rate)
