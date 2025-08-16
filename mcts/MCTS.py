@@ -1,3 +1,4 @@
+import copy
 import math
 import random
 import numpy as np
@@ -160,11 +161,14 @@ class MCTS():
 
         return root_value, probs
 
+
     def select_child(self, node: MCTSNode):
         total_visits = node.visit_count
         explore_term = math.sqrt(total_visits + 1)
         best_score = -float("inf")
         best_move = None
+
+        # 选择子节点
         for move, edge in node.children.items():
             child, prior = edge.child, edge.prior
             v_count = child.visit_count if child is not None else 0
@@ -177,12 +181,24 @@ class MCTS():
 
         edge = node.children[best_move]
         child, prior = edge.child, edge.prior
+
         if child is None:
             y, x = best_move
-            new_board = node.board.copy()
+            # 使用深拷贝，保证每个节点棋盘独立
+            new_board = copy.deepcopy(node.board)
+
+            # 落子前检查是否合法
+            if new_board.board[y, x] != 0:
+                # 如果非法，随机选择一个合法位置
+                legal = new_board.legal_moves()
+                if not legal:
+                    raise ValueError("No legal moves available.")
+                y, x = random.choice(legal)
+
             new_board.step((y, x), node.player)
-            child = MCTSNode(new_board, parent=node, move=best_move, player=-node.player)
-            node.children[best_move] = Edge(child, prior)
+            child = MCTSNode(new_board, parent=node, move=(y, x), player=-node.player)
+            node.children[(y, x)] = Edge(child, prior)
+
         return child
 
     def expand_node(self, node: MCTSNode):
