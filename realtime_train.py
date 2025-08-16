@@ -13,7 +13,7 @@ from core.board import GomokuBoard
 from mcts.MCTS import MCTS
 from net.GomokuNet import PolicyValueNet
 
-mp.set_start_method('spawn', force=True)  # ⚠️ 提前设置 spawn 方法
+mp.set_start_method('spawn', force=True)
 
 def safe_choice(probs):
     probs = np.nan_to_num(probs, nan=0.0)
@@ -28,7 +28,7 @@ def safe_choice(probs):
 def selfplay_worker(worker_id, strong_model_state, weak_model_state, data_queue, stop_event, num_simulations,
                     board_size, opponent_type="weak_mcts", opponent_simulations=None):
     device = torch.device('cpu')
-    torch.set_num_threads(1)
+    torch.set_num_threads(min(mp.cpu_count() // 4, 4))
 
     local_strong = PolicyValueNet(board_size=board_size).to(device)
     local_strong.load_state_dict(strong_model_state)
@@ -77,7 +77,10 @@ def selfplay_worker(worker_id, strong_model_state, weak_model_state, data_queue,
 
         boards, policies, values, _ = strong_mcts.get_train_data(game_result=board.winner())
         for b, p, v in zip(boards, policies, values):
-            data_queue.put((b, p.reshape(-1), v))
+            try:
+                data_queue.put((b, p.reshape(-1), v), block=False)
+            except mp.queues.Full:
+                continue
 
 
 def train_realtime(args, update_threshold=0.6):
@@ -101,7 +104,6 @@ def train_realtime(args, update_threshold=0.6):
     data_queue = mp.Queue(maxsize=args.queue_size)
     stop_event = mp.Event()
 
-    # 使用 spawn 上下文创建模型参数副本
     strong_model_state = {k: v.cpu() for k, v in strong_model.state_dict().items()}
     weak_model_state = {k: v.cpu() for k, v in weak_model.state_dict().items()}
 
@@ -119,21 +121,21 @@ def train_realtime(args, update_threshold=0.6):
     last_print_time = time.time()
 
     try:
-        for step in tqdm.trange(args.train_steps, desc="Training"):
+        for step in tqdm.trange(args.train_steps, desc="训练中"):
             batch = []
             while len(batch) < args.batch_size:
                 try:
-                    batch.append(data_queue.get(timeout=1))
+                    batch.append(data_queue.get(timeout=5))
                     current_time = time.time()
-                    if current_time - last_print_time >= 300:  # 300秒 = 5分钟
-                        print(f"[Train Step {step}] Current batch length: {len(batch)}")
+                    if current_time - last_print_time >= 300:
+                        print(f"[训练步骤 {step}] 当前 batch 长度: {len(batch)}")
                         last_print_time = current_time
                 except Exception:
                     if stop_event.is_set():
                         break
 
-            if len(batch) < args.batch_size:
-                break
+            if len(batch) == 0:
+                continue
 
             boards = torch.stack([b for b, _, _ in batch]).to(device)
             policies = torch.stack([p for _, p, _ in batch]).to(device)
@@ -148,11 +150,17 @@ def train_realtime(args, update_threshold=0.6):
             loss.backward()
             optimizer.step()
 
-            recent_results.append((values.mean().item() > 0))
+            winner_rate = (values > 0).float().mean().item()
+            recent_results.append(winner_rate)
             if len(recent_results) > 100:
                 recent_results.pop(0)
+
             if np.mean(recent_results) >= update_threshold:
                 weak_model.load_state_dict(strong_model.state_dict())
+
+            if step % args.save_interval == 0:
+                torch.save(strong_model.state_dict(), os.path.join(checkpoints_path, f"model_step{step}.pth"))
+                print(f"[保存模型] 第 {step} 步模型已保存")
 
             global_step += 1
 
@@ -165,22 +173,23 @@ def train_realtime(args, update_threshold=0.6):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Real-time training with strong vs weak self-play MCTS')
+    parser = argparse.ArgumentParser(description='实时训练：强模型 vs 弱模型自对弈 MCTS')
     parser.add_argument('--board-size', type=int, default=15)
-    parser.add_argument('--num-workers', type=int, default=22)
+    parser.add_argument('--num-workers', type=int, default=8)
     parser.add_argument('--num-simulations', type=int, default=800)
     parser.add_argument('--opponent-type', type=str, choices=['random', 'weak_mcts'], default='weak_mcts')
     parser.add_argument('--opponent-simulations', type=int, default=100)
     parser.add_argument('--train-steps', type=int, default=1000)
-    parser.add_argument('--batch-size', type=int, default=1024)
-    parser.add_argument('--save_interval', type=int, default=20)
-    parser.add_argument('--queue-size', type=int, default=2048)
+    parser.add_argument('--batch-size', type=int, default=256)
+    parser.add_argument('--save-interval', type=int, default=20)
+    parser.add_argument('--queue-size', type=int, default=512)
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--log-dir', type=str, default='./tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
-    parser.add_argument('--no-cuda', action='store_true', help='disable CUDA')
-    parser.add_argument('--update-threshold', type=float, default=0.6, help='Win rate threshold to update weak model')
+    parser.add_argument('--no-cuda', action='store_true', help='禁用 CUDA')
+    parser.add_argument('--update-threshold', type=float, default=0.6, help='弱模型更新胜率阈值')
     args = parser.parse_args()
-    print(f"[Training Start] Training started at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+
+    print(f"[训练开始] 开始时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
     train_realtime(args, update_threshold=args.update_threshold)
-    print(f"[Training End] Training ended at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
+    print(f"[训练结束] 结束时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
