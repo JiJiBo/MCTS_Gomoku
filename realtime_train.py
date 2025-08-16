@@ -204,7 +204,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--save-interval', type=int, default=20)
     parser.add_argument('--queue-size', type=int, default=512)
-    parser.add_argument('--log-dir', type=str, default='./tf-logs/')
+    parser.add_argument('--log-dir', type=str, default='/root/tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
     parser.add_argument('--no-cuda', action='store_true', help='禁用 CUDA')
     parser.add_argument('--update-threshold', type=float, default=0.6, help='弱模型更新胜率阈值')
