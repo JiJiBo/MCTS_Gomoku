@@ -161,7 +161,13 @@ def train_realtime(args, update_threshold=0.6):
             loss.backward()
             optimizer.step()
             scheduler.step()
-
+            # TensorBoard 记录
+            writer.add_scalar('loss/total_loss', loss.item(), global_step)
+            writer.add_scalar('loss/policy_loss', policy_loss.item(), global_step)
+            writer.add_scalar('loss/value_loss', value_loss.item(), global_step)
+            writer.add_scalar('metric/avg_winner_rate', float(np.mean(recent_results)) if recent_results else 0.0,
+                              global_step)
+            writer.add_scalar('lr/current_lr', scheduler.get_last_lr()[0], global_step)
             winner_rate = (values > 0).float().mean().item()
             recent_results.append(winner_rate)
             if len(recent_results) > 100:
@@ -187,7 +193,7 @@ def train_realtime(args, update_threshold=0.6):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='实时训练：强模型 vs 弱模型自对弈 MCTS')
     parser.add_argument('--board-size', type=int, default=15)
-    parser.add_argument('--num-workers', type=int, default=8)
+    parser.add_argument('--num-workers', type=int, default=18)
     parser.add_argument('--num-simulations', type=int, default=800)
     parser.add_argument('--opponent-type', type=str, choices=['random', 'weak_mcts'], default='weak_mcts')
     parser.add_argument('--opponent-simulations', type=int, default=100)
