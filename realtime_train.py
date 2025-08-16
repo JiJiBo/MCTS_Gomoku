@@ -85,7 +85,9 @@ def train_realtime(args):
     model = PolicyValueNet(board_size=args.board_size)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    writer = SummaryWriter(args.log_dir)
+    log_dir = args.log_dir
+    log_dir = os.path.join(log_dir, time.strftime("%Y%m%d-%H%M%S"))
+    writer = SummaryWriter(log_dir)
 
     data_queue: queue.Queue = queue.Queue(maxsize=args.queue_size)
     stop_event = threading.Event()
