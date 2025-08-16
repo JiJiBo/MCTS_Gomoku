@@ -181,5 +181,6 @@ if __name__ == '__main__':
     parser.add_argument('--no-cuda', action='store_true', help='disable CUDA')
     parser.add_argument('--update-threshold', type=float, default=0.6, help='Win rate threshold to update weak model')
     args = parser.parse_args()
-
+    print(f"[Training Start] Training started at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
     train_realtime(args, update_threshold=args.update_threshold)
+    print(f"[Training End] Training ended at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
