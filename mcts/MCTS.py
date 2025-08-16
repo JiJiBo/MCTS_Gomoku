@@ -48,15 +48,12 @@ class MCTS():
         return self.get_result(root_node, is_train)
 
     def get_result(self, root_node: MCTSNode, is_train):
-        """Get the result of the MCTS search."""
         size = root_node.board.size
         board_mat = root_node.board.board
         legal_mask = (board_mat == 0)
         probs = np.zeros((size, size), dtype=np.float32)
 
-        items = []  # (move, child, prior)
-        for move, edge in root_node.children.items():
-            items.append((move, edge.child, edge.prior))
+        items = [(move, edge.child, edge.prior) for move, edge in root_node.children.items()]
 
         visit_counts = np.array(
             [(c.visit_count if c is not None else 0) for (_, c, _) in items],
@@ -65,14 +62,6 @@ class MCTS():
 
         total_visits = float(visit_counts.sum()) if visit_counts.size > 0 else 0.0
 
-        if getattr(root_node, "visit_count", 0) > 0:
-            root_value = float(root_node.q_value())
-        else:
-            policy_logits_net, value_net = self.model.calc_one_board(
-                root_node.board.get_planes_9ch(root_node.player)
-            )
-            root_value = float(value_net)
-
         def assign_by_moves(moves_list, weights):
             for (mv, _child, _prior), w in zip(moves_list, weights):
                 if not np.isfinite(w):
@@ -80,66 +69,59 @@ class MCTS():
                 y, x = mv
                 probs[y, x] = float(w)
 
-        if not is_train:
-            temperature_eval = 1e-3
-            if total_visits > 0:
-                if temperature_eval <= 0:
-                    idx = int(np.argmax(visit_counts))
-                    y, x = items[idx][0]
-                    probs[y, x] = 1.0
-                else:
-                    if temperature_eval < 1e-3:
-                        x = np.zeros_like(visit_counts, dtype=np.float64)
-                        x[np.argmax(visit_counts)] = 1.0
-                    else:
-                        log_v = np.log(visit_counts + 1e-8)
-                        exponent = np.clip(log_v / temperature_eval, a_min=None, a_max=50)
-                        x = np.exp(exponent)
-
-                    Z = np.sum(x)
-                    if not np.isfinite(Z) or Z == 0:
-                        Z = 1.0  # 避免 NaN
-                    assign_by_moves(items, x / Z)
-            else:
-                policy_logits_net, _ = self.model.calc_one_board(
-                    root_node.board.get_planes_9ch(root_node.player)
-                )
-                prior = np.where(legal_mask, policy_logits_net, 0.0).astype(np.float32)
-                s = float(prior.sum())
-                if s > 0:
-                    probs = prior / s
-                else:
-                    cnt = int(legal_mask.sum())
-                    if cnt > 0:
-                        probs = legal_mask.astype(np.float32) / float(cnt)
-            return root_value, probs
-
+        temperature_eval = 1e-3
         temperature_train = 1.0
         prior_backfill_eps = 0.10
 
-        policy_logits_net, _ = self.model.calc_one_board(
-            root_node.board.get_planes_9ch(root_node.player)
-        )
+        if not is_train:
+            if total_visits > 0:
+                if temperature_eval < 1e-3:
+                    # 极小温度直接 one-hot
+                    x = np.zeros_like(visit_counts, dtype=np.float64)
+                    x[np.argmax(visit_counts)] = 1.0
+                else:
+                    log_v = np.log(visit_counts + 1e-8)
+                    exponent = np.clip(log_v / max(temperature_eval, 1e-3), a_min=None, a_max=50)
+                    x = np.exp(exponent)
+
+                Z = np.sum(x)
+                if not np.isfinite(Z) or Z == 0:
+                    Z = 1.0
+                assign_by_moves(items, x / Z)
+            else:
+                # fallback 使用网络 prior
+                policy_logits_net, _ = self.model.calc_one_board(root_node.board.get_planes_9ch(root_node.player))
+                prior = np.where(legal_mask, policy_logits_net, 0.0).astype(np.float32)
+                s = float(prior.sum())
+                probs = prior / s if s > 0 else legal_mask.astype(np.float32) / float(legal_mask.sum())
+
+            root_value = float(root_node.q_value() if getattr(root_node, "visit_count", 0) > 0 else 0.0)
+            return root_value, probs
+
+        # 训练模式
+        policy_logits_net, _ = self.model.calc_one_board(root_node.board.get_planes_9ch(root_node.player))
         prior = np.where(legal_mask, policy_logits_net, 0.0).astype(np.float32)
         ps = float(prior.sum())
         if ps > 0:
             prior /= ps
         else:
-            cnt = int(legal_mask.sum())
-            if cnt > 0:
-                prior = legal_mask.astype(np.float32) / float(cnt)
+            prior = legal_mask.astype(np.float32) / float(legal_mask.sum())
 
         if total_visits > 0:
             if temperature_train <= 0:
-                idx = int(np.argmax(visit_counts))
-                y, x = items[idx][0]
-                probs[y, x] = 1.0
+                x = np.zeros_like(visit_counts, dtype=np.float64)
+                x[np.argmax(visit_counts)] = 1.0
             else:
-                x = visit_counts ** (1.0 / max(1e-6, temperature_train))
-                Z = float(x.sum())
-                if Z > 0:
-                    assign_by_moves(items, x / Z)
+                # 对 exponent 做裁剪
+                log_v = np.log(visit_counts + 1e-8)
+                exponent = np.clip(log_v / max(temperature_train, 1e-3), a_min=None, a_max=50)
+                x = np.exp(exponent)
 
+            Z = float(x.sum())
+            if Z > 0:
+                assign_by_moves(items, x / Z)
+
+            # prior backfill
             if prior_backfill_eps > 0.0:
                 probs *= (1.0 - prior_backfill_eps)
 
@@ -166,9 +148,9 @@ class MCTS():
         if Z > 0:
             probs /= Z
         else:
-            cnt = int(legal_mask.sum())
-            if cnt > 0:
-                probs = legal_mask.astype(np.float32) / float(cnt)
+            probs = legal_mask.astype(np.float32) / float(legal_mask.sum())
+
+        root_value = float(root_node.q_value() if getattr(root_node, "visit_count", 0) > 0 else 0.0)
         return root_value, probs
 
     def select_child(self, node: MCTSNode):
