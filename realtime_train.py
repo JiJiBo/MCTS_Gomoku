@@ -15,6 +15,7 @@ from net.GomokuNet import PolicyValueNet
 
 mp.set_start_method('spawn', force=True)
 
+
 def safe_choice(probs):
     probs = np.nan_to_num(probs, nan=0.0)
     total = probs.sum()
@@ -85,7 +86,7 @@ def selfplay_worker(worker_id, strong_model_state, weak_model_state, data_queue,
                     continue
 
 
-def train_realtime(args, update_threshold=0.6):
+def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
     seed = 42
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -99,11 +100,10 @@ def train_realtime(args, update_threshold=0.6):
     device = torch.device('cuda' if torch.cuda.is_available() and not args.no_cuda else 'cpu')
     strong_model = PolicyValueNet(board_size=args.board_size).to(device)
     weak_model = PolicyValueNet(board_size=args.board_size).to(device)
-    # 定义优化器
-    optimizer = torch.optim.Adam(strong_model.parameters(), lr=0.2)
 
-    milestones = [30, 60, 90]
-    gamma = 0.1  # 每次降低到原来的 0.1
+    optimizer = torch.optim.Adam(strong_model.parameters(), lr=0.2)
+    milestones = [100, 300, 600]
+    gamma = 0.1
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
 
     writer = SummaryWriter(os.path.join(args.log_dir, time.strftime("%Y%m%d-%H%M%S")))
@@ -126,6 +126,7 @@ def train_realtime(args, update_threshold=0.6):
     global_step = 0
     recent_results = []
     last_print_time = time.time()
+    epochs_since_update = 0
 
     try:
         for step in tqdm.trange(args.train_steps, desc="训练中"):
@@ -144,12 +145,11 @@ def train_realtime(args, update_threshold=0.6):
             if len(batch) == 0:
                 continue
 
-            # 确保队列中剩余数据也被利用
-            while not data_queue.empty() and len(batch) < args.batch_size:
-                try:
-                    batch.append(data_queue.get_nowait())
-                except Exception:
-                    break
+            # while not data_queue.empty() and len(batch) < args.batch_size:
+            #     try:
+            #         batch.append(data_queue.get_nowait())
+            #     except Exception:
+            #         break
 
             boards = torch.stack([b for b, _, _ in batch]).to(device)
             policies = torch.stack([p for _, p, _ in batch]).to(device)
@@ -164,20 +164,24 @@ def train_realtime(args, update_threshold=0.6):
             loss.backward()
             optimizer.step()
             scheduler.step()
-            # TensorBoard 记录
+
             writer.add_scalar('loss/total_loss', loss.item(), global_step)
             writer.add_scalar('loss/policy_loss', policy_loss.item(), global_step)
             writer.add_scalar('loss/value_loss', value_loss.item(), global_step)
             writer.add_scalar('metric/avg_winner_rate', float(np.mean(recent_results)) if recent_results else 0.0,
                               global_step)
             writer.add_scalar('lr/current_lr', scheduler.get_last_lr()[0], global_step)
+
             winner_rate = (values > 0).float().mean().item()
             recent_results.append(winner_rate)
             if len(recent_results) > 100:
                 recent_results.pop(0)
 
-            if np.mean(recent_results) >= update_threshold:
+            epochs_since_update += 1
+            if np.mean(recent_results) >= update_threshold and epochs_since_update >= min_epochs_before_update:
                 weak_model.load_state_dict(strong_model.state_dict())
+                print(f"[更新模型] 第 {step} 步模型已更新")
+                epochs_since_update = 0
 
             if step % args.save_interval == 0:
                 torch.save(strong_model.state_dict(), os.path.join(checkpoints_path, f"model_step{step}.pth"))
@@ -200,7 +204,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-simulations', type=int, default=800)
     parser.add_argument('--opponent-type', type=str, choices=['random', 'weak_mcts'], default='weak_mcts')
     parser.add_argument('--opponent-simulations', type=int, default=100)
-    parser.add_argument('--train-steps', type=int, default=1000)
+    parser.add_argument('--train-steps', type=int, default=10000)
     parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--save-interval', type=int, default=20)
     parser.add_argument('--queue-size', type=int, default=512)
