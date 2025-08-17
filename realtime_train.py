@@ -106,7 +106,7 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
     weak_model = PolicyValueNet(board_size=args.board_size).to(device)
 
     optimizer = torch.optim.Adam(strong_model.parameters(), lr=0.2)
-    milestones = [30, 60, 90]
+    milestones = [50, 100, 150]
     gamma = 0.1
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
 
@@ -149,7 +149,8 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
 
             if len(batch) == 0:
                 continue
-
+            strong_model.train()
+            weak_model.train()
             # while not data_queue.empty() and len(batch) < args.batch_size:
             #     try:
             #         batch.append(data_queue.get_nowait())
@@ -210,14 +211,14 @@ def train_realtime(args, update_threshold=0.55, min_epochs_before_update=10):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='实时训练：强模型 vs 弱模型自对弈 MCTS')
     parser.add_argument('--board-size', type=int, default=15)
-    parser.add_argument('--num-workers', type=int, default=18)
+    parser.add_argument('--num-workers', type=int, default=22)
     parser.add_argument('--num-simulations', type=int, default=800)
     parser.add_argument('--opponent-type', type=str, choices=['random', 'weak_mcts'], default='weak_mcts')
     parser.add_argument('--opponent-simulations', type=int, default=100)
-    parser.add_argument('--train-steps', type=int, default=10000)
-    parser.add_argument('--batch-size', type=int, default=4096)
+    parser.add_argument('--train-steps', type=int, default=200)
+    parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--save-interval', type=int, default=20)
-    parser.add_argument('--queue-size', type=int, default=4096)
+    parser.add_argument('--queue-size', type=int, default=256)
     parser.add_argument('--log-dir', type=str, default='/root/tf-logs/')
     parser.add_argument('--save-path', type=str, default='realtime_model.pth')
     parser.add_argument('--no-cuda', action='store_true', help='禁用 CUDA')
